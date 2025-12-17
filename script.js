@@ -1,5 +1,11 @@
-// --- KONFIGURASI GLOBAL ---
-const KONFIGURASI = { jumlah: 80000, gesekan: 0.98 }; 
+// --- DETEKSI MOBILE ---
+const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+// --- KONFIGURASI GLOBAL (OPTIMIZED) ---
+const KONFIGURASI = { 
+    jumlah: isMobile ? 30000 : 80000, // Turunkan partikel di HP
+    gesekan: 0.98 
+}; 
 
 // --- VARIABEL UTAMA ---
 let adegan, kamera, penyaji, partikel, material, geometri;
@@ -10,13 +16,8 @@ let audioAktif = false;
 
 // --- STATUS APLIKASI ---
 let status = {
-    gestur: 0, 
-    targetGestur: 0,
-    
-    // Split gestures for combining slider + hand
-    handGestur: 0,
-    manualGestur: 0, // Nilai dari Slider
-
+    gestur: 0, targetGestur: 0,
+    handGestur: 0, manualGestur: 0,
     rotasiX: 0, rotasiY: 0, 
     momentumY: 0, 
     posisiTanganTerakhirX: 0, 
@@ -24,6 +25,7 @@ let status = {
     zum: 1.0, basisZum: 1.0,
     isLocked: false, 
     bass: 0, mid: 0, high: 0,
+    targetBass: 0, targetMid: 0, targetHigh: 0,
     baseColor1: new THREE.Color('#ff8800'), 
     targetColor1: new THREE.Color('#ff8800'),
     bentukSaatIni: 'bola',
@@ -44,11 +46,12 @@ function inisialisasi() {
     adegan.fog = new THREE.FogExp2(0x000000, 0.001); 
 
     kamera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
-    kamera.position.z = 40;
+    kamera.position.z = isMobile ? 55 : 40; // Mundurkan kamera di HP
 
     penyaji = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
     penyaji.setSize(window.innerWidth, window.innerHeight);
-    penyaji.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Batasi Pixel Ratio di HP agar tidak panas
+    penyaji.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2));
     document.body.appendChild(penyaji.domElement);
 
     adegan.add(new THREE.AmbientLight(0x222222));
@@ -132,20 +135,31 @@ function imporObj(input) {
     reader.readAsText(file);
 }
 
-// --- SISTEM DETEKSI TANGAN ---
+// --- SISTEM DETEKSI TANGAN (OPTIMIZED) ---
 async function mulaiSistemInput() {
     const elemenVideo = document.getElementById('video_input');
     const elemenKanvas = document.getElementById('kanvas_output');
     const konteksKanvas = elemenKanvas.getContext('2d');
-    elemenKanvas.width = 320; elemenKanvas.height = 240;
+    
+    // Reduce canvas resolution slightly for mobile performance
+    elemenKanvas.width = 320; 
+    elemenKanvas.height = 240;
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Browser tidak mendukung WebCam.");
+        alert("WebCam tidak didukung.");
         return;
     }
 
     const hands = new Hands({ locateFile: (file) => `https://unpkg.com/@mediapipe/hands/${file}` });
-    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7, selfieMode: true });
+    
+    // CONFIG MOBILE vs PC
+    hands.setOptions({ 
+        maxNumHands: 2, 
+        modelComplexity: isMobile ? 0 : 1, // 0 = Lite (Cepat), 1 = Full (Akurat)
+        minDetectionConfidence: 0.6, // Sedikit lebih longgar agar cepat
+        minTrackingConfidence: 0.6,
+        selfieMode: true 
+    });
 
     hands.onResults(hasil => {
         konteksKanvas.clearRect(0, 0, elemenKanvas.width, elemenKanvas.height);
@@ -158,14 +172,11 @@ async function mulaiSistemInput() {
         }
 
         const landmark = hasil.multiHandLandmarks;
-        
-        // JIKA TANGAN HILANG, JANGAN RESET NILAI TANGAN TERAKHIR (GHOST)
         if (!landmark || landmark.length === 0) {
-            document.getElementById('teks-status').innerText = "Hand Lost - State Preserved";
+            document.getElementById('teks-status').innerText = "Ghost Mode";
             return;
         }
 
-        // --- ZOOM MODE CHECK ---
         if (landmark.length === 2) {
             const jariTangan1 = hitungJari(landmark[0]);
             const jariTangan2 = hitungJari(landmark[1]);
@@ -182,27 +193,25 @@ async function mulaiSistemInput() {
                 konteksKanvas.fillStyle = "#ff00ff";
                 konteksKanvas.font = "bold 16px Arial";
                 konteksKanvas.textAlign = "center";
-                konteksKanvas.fillText("ZOOM MODE", 160, 120);
-                document.getElementById('teks-status').innerText = "ZOOM MODE ACTIVE";
+                konteksKanvas.fillText("ZOOM", 160, 120);
                 return;
             }
         }
 
-        document.getElementById('teks-status').innerText = "System Active";
+        document.getElementById('teks-status').innerText = "Active";
         konteksKanvas.textAlign = "left";
 
         for (let i = 0; i < landmark.length; i++) {
             const lm = landmark[i];
             const label = hasil.multiHandedness[i].label;
             
-            // --- LEFT: PINCH & LOCK ---
+            // LEFT HAND
             if(label === 'Left') {
                 const jariKiri = hitungJari(lm);
-
                 if (jariKiri === 0) status.isLocked = true;
                 else if (jariKiri === 5) {
                     status.isLocked = false;
-                    status.handGestur = 0; // Reset hand gesture
+                    status.handGestur = 0;
                 }
 
                 if (!status.isLocked) {
@@ -210,27 +219,19 @@ async function mulaiSistemInput() {
                     const MIN_JARAK = 0.02; const MAX_JARAK = 0.35; 
                     let rawPinch = (MAX_JARAK - jarakCubit) / (MAX_JARAK - MIN_JARAK);
                     rawPinch = Math.max(0.0, Math.min(1.0, rawPinch));
-                    
-                    // Simpan ke handGestur, bukan langsung ke targetGestur
                     status.handGestur = Math.pow(rawPinch, 0.4);
                 }
 
                 if (status.isLocked) {
                     konteksKanvas.fillStyle = "#ff0055";
-                    konteksKanvas.fillText("🔒 LOCKED", 10, 30);
+                    konteksKanvas.fillText("🔒", 10, 30);
                 } else {
                     konteksKanvas.fillStyle = "cyan";
-                    konteksKanvas.fillText(`GATHER: ${Math.round(status.handGestur*100)}%`, 10, 30);
-                    konteksKanvas.strokeStyle = `rgba(0, 255, 255, ${status.handGestur})`;
-                    konteksKanvas.lineWidth = 4;
-                    konteksKanvas.beginPath();
-                    konteksKanvas.moveTo(lm[4].x*elemenKanvas.width, lm[4].y*elemenKanvas.height);
-                    konteksKanvas.lineTo(lm[8].x*elemenKanvas.width, lm[8].y*elemenKanvas.height);
-                    konteksKanvas.stroke();
+                    konteksKanvas.fillText(`G: ${Math.round(status.handGestur*100)}%`, 10, 30);
                 }
             }
 
-            // --- RIGHT: ROTATE ---
+            // RIGHT HAND
             if(label === 'Right') {
                 const pusat = lm[9];
                 const posisiXSaatIni = (pusat.x - 0.5) * -20.0;
@@ -238,15 +239,19 @@ async function mulaiSistemInput() {
                 status.momentumY += deltaX * 0.05; 
                 status.targetRotasiX = (pusat.y - 0.5) * 4.0;
                 status.posisiTanganTerakhirX = posisiXSaatIni;
-                
-                konteksKanvas.fillStyle = "yellow";
-                konteksKanvas.fillText("ROTATE", 10, 230);
             }
         }
     });
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        // Request Mobile Facing Camera
+        const constraints = { 
+            video: { 
+                width: 640, height: 480,
+                facingMode: "user" // Camera Depan
+            } 
+        };
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
         elemenVideo.srcObject = stream;
         elemenVideo.onloadedmetadata = () => { elemenVideo.play(); loopDeteksi(); };
     } catch (err) {
@@ -281,8 +286,6 @@ function buatLatarBintang() {
     adegan.add(new THREE.Points(geoBintang, matBintang));
 }
 
-function acakGaussian() { let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random(); return Math.sqrt(-2.0*Math.log(u))*Math.cos(2.0*Math.PI*v); }
-
 function aturBentuk(tipe) {
     if(status.bentukSaatIni === tipe) return; 
     status.bentukSaatIni = tipe;
@@ -303,7 +306,8 @@ function aturBentuk(tipe) {
     }
     atributTujuan.needsUpdate = true; 
     status.morfosis = 0.0; 
-
+    
+    // Warna Preset
     if(tipe==='lubanghitam') aturWarna("#ff5500", "#330000"); 
     else if(tipe==='galaksi') aturWarna("#ffddaa", "#4488ff");
     else if(tipe==='nebula') aturWarna("#00ffcc", "#ff00cc");
@@ -330,7 +334,7 @@ function buatTitik(tipe) {
             const r=minR+(maxR-minR)*Math.pow(Math.random(),4.0); 
             const t=Math.random()*Math.PI*2; 
             x=r*Math.cos(t); z=r*Math.sin(t); 
-            y=acakGaussian()*0.1*(1.0-(r/maxR)); 
+            y=(Math.random()-0.5)*2.0*(1.0-(r/maxR)); 
             if(z<-1.0){const warp=1.0/Math.pow(r*0.18,2.0); y+=Math.sign(y)*warp*12.0*(Math.abs(z)/maxR);} 
         }
         else if(tipe==='galaksi') { 
@@ -338,10 +342,8 @@ function buatTitik(tipe) {
             const rad=Math.random()*Math.random(); const dist=rad*skala; 
             const sudut=(i%lengan)*(Math.PI*2/lengan); 
             const spiral=sudut+Math.log(rad+0.1)*putaran; 
-            const sebar=acakGaussian()*(0.2+rad*6.0); 
-            x=Math.cos(spiral)*dist+sebar; z=Math.sin(spiral)*dist+sebar; 
-            const tonjolan=acakGaussian()*Math.exp(-rad*5.0)*5.0; 
-            y=tonjolan+(Math.random()-0.5)*rad*1.5; 
+            x=Math.cos(spiral)*dist+(Math.random()-0.5)*2; z=Math.sin(spiral)*dist+(Math.random()-0.5)*2; 
+            y=(Math.random()-0.5)*rad*1.5; 
         }
         else { // Hati
             let t=Math.random()*6.28, r=Math.random(); 
@@ -403,16 +405,13 @@ function buatPartikel(tipe) {
     
     for(let i=0;i<KONFIGURASI.jumlah;i++){
         awal.push(0,0,0); tujuan.push(0,0,0);
-        
-        // Spherical Math (Scatter Sphere)
+        // Spherical Math
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         const r = Math.pow(Math.random(), 1/3); 
-        
         const x = r * Math.sin(phi) * Math.cos(theta);
         const y = r * Math.sin(phi) * Math.sin(theta);
         const z = r * Math.cos(phi);
-        
         rnd.push(x, y, z);
         pos.push(0,0,0);
     } 
@@ -443,11 +442,7 @@ function siapkanUI() {
     document.getElementById('sliderGesekan').addEventListener('input',(e)=>KONFIGURASI.gesekan=parseFloat(e.target.value)); 
     document.getElementById('sliderCahaya').addEventListener('input',(e)=>efekBloom.strength=parseFloat(e.target.value)); 
     document.getElementById('sliderZum').addEventListener('input',(e)=>status.basisZum=parseFloat(e.target.value)); 
-    
-    // --- MANUAL SLIDER LISTENER ---
-    document.getElementById('sliderGather').addEventListener('input', (e) => {
-        status.manualGestur = parseFloat(e.target.value);
-    });
+    document.getElementById('sliderGather').addEventListener('input', (e) => { status.manualGestur = parseFloat(e.target.value); });
 }
 
 async function aktifkanAudio() { 
@@ -475,25 +470,32 @@ function animasi() {
     
     if(audioAktif && penganalisa) { 
         penganalisa.getByteFrequencyData(dataArrayAudio); 
-        let bass=0, mid=0, high=0;
-        for(let i=0; i<10; i++) bass += dataArrayAudio[i];
-        for(let i=10; i<100; i++) mid += dataArrayAudio[i];
-        for(let i=100; i<256; i++) high += dataArrayAudio[i];
-        status.bass = (bass/10)/255;
-        status.mid = (mid/90)/255;
-        status.high = (high/156)/255;
+        let rawBass=0, rawMid=0, rawHigh=0;
+        for(let i=0; i<10; i++) rawBass += dataArrayAudio[i];
+        for(let i=10; i<100; i++) rawMid += dataArrayAudio[i];
+        for(let i=100; i<256; i++) rawHigh += dataArrayAudio[i];
+        
+        status.targetBass = (rawBass/10)/255;
+        status.targetMid = (rawMid/90)/255;
+        status.targetHigh = (rawHigh/156)/255;
 
-        // Beat Detection Flash
+        status.bass += (status.targetBass - status.bass) * 0.15;
+        status.mid += (status.targetMid - status.mid) * 0.1;
+        status.high += (status.targetHigh - status.high) * 0.2;
+
         if (status.bass > 0.8) material.uniforms.uWarna1.value.lerp(new THREE.Color(1, 1, 1), 0.3);
         else material.uniforms.uWarna1.value.lerp(status.baseColor1, 0.1);
 
-    } else { status.bass=0; status.mid=0; status.high=0; }
+    } else { 
+        status.bass += (0 - status.bass) * 0.1;
+        status.mid += (0 - status.mid) * 0.1;
+        status.high += (0 - status.high) * 0.1;
+    }
     
-    // --- COMBINE MANUAL SLIDER & HAND GESTURE ---
-    // Gunakan nilai terbesar antara slider dan tangan
+    // Combine Manual & Hand Gesture
     status.targetGestur = Math.max(status.handGestur, status.manualGestur);
-
     status.gestur += (status.targetGestur - status.gestur) * 8.0 * dt;
+    
     if(status.morfosis < 1.0) { 
         status.morfosis += dt * 1.5; 
         if(status.morfosis > 1.0) status.morfosis = 1.0; 
