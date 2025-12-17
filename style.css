@@ -1,7 +1,7 @@
-body { margin: 0; overflow: hidden; background: #000000; font-family: 'Segoe UI', sans-serif; user-select: none; }
+body { margin: 0; overflow: hidden; background: #000000; font-family: 'Segoe UI', sans-serif; }
 canvas { display: block; }
 
-/* --- DESKTOP LAYOUT --- */
+/* SIDEBAR */
 #sidebar {
     position: absolute; top: 50%; left: 20px; 
     transform: translateY(-50%); width: 140px;
@@ -12,9 +12,6 @@ canvas { display: block; }
     backdrop-filter: blur(10px); z-index: 100;
 }
 
-/* Scroll container for mobile mainly */
-.scroll-container { display: flex; flex-direction: column; gap: 8px; }
-
 .judul-ui {
     color: rgba(255,255,255,0.5); font-size: 10px; font-weight: bold; 
     letter-spacing: 2px; margin-bottom: 5px; text-align: center;
@@ -24,16 +21,24 @@ canvas { display: block; }
     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2);
     color: #ccc; padding: 10px; border-radius: 8px; cursor: pointer;
     font-size: 11px; text-transform: uppercase; transition: 0.2s; 
-    text-align: center; width: 100%; touch-action: manipulation;
+    text-align: center; width: 100%;
 }
 .tombol:hover, .tombol.aktif { 
     background: #00ffff; color: black; border-color: #00ffff; 
     box-shadow: 0 0 15px rgba(0, 255, 255, 0.4); 
 }
 .tombol-import { border-color: #ffff00; color: #ffff00; }
-.tombol.mic-aktif { background: #ff0055; color: white; border-color: #ff0055; }
+.tombol-import:hover { background: #ffff00; color: black; box-shadow: 0 0 15px rgba(255, 255, 0, 0.4); }
+.tombol.mic-aktif { background: #ff0055; color: white; border-color: #ff0055; box-shadow: 0 0 15px #ff0055; }
 
 .pemisah-horizontal { height: 1px; background: rgba(255,255,255,0.1); margin: 5px 0; }
+
+.input-group { display: flex; flex-direction: column; gap: 5px; margin-top: 5px; }
+input[type="text"] {
+    background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3);
+    color: white; padding: 8px; border-radius: 5px; outline: none; width: 100%;
+    text-align: center; font-family: monospace; box-sizing: border-box;
+}
 
 /* BOTTOM BAR */
 #panel-bawah {
@@ -41,16 +46,16 @@ canvas { display: block; }
     background: rgba(0, 0, 0, 0.7);
     padding: 10px 30px; border-radius: 50px;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px); z-index: 100; width: auto; max-width: 90%;
+    backdrop-filter: blur(10px); z-index: 100; width: auto;
 }
 
 .baris { display: flex; gap: 15px; align-items: center; justify-content: center; }
 .pemisah-vertikal { width: 1px; height: 30px; background: rgba(255,255,255,0.2); }
 
-.grup-slider { display: flex; flex-direction: column; align-items: center; min-width: 60px; }
+.grup-slider { display: flex; flex-direction: column; align-items: center; min-width: 80px; }
 .label { font-size: 9px; color: #888; margin-bottom: 3px; letter-spacing: 1px; }
 input[type=range] { -webkit-appearance: none; width: 100%; height: 4px; background: #333; border-radius: 2px; cursor: pointer; }
-input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #00ffff; }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #00ffff; }
 input[type="color"] { border:none; width:25px; height:25px; cursor:pointer; background:none; padding: 0; border-radius: 50%; overflow: hidden;}
 
 /* PREVIEW */
@@ -65,55 +70,12 @@ input[type="color"] { border:none; width:25px; height:25px; cursor:pointer; back
 
 #instruksi {
     position: absolute; top: 20px; left: 20px; pointer-events: none;
-    color: rgba(255,255,255,0.7); font-size: 13px; text-shadow: 0 2px 4px black; z-index: 10;
+    color: rgba(255,255,255,0.7); font-size: 13px; text-shadow: 0 2px 4px black;
 }
 .sorot { color: #00ffff; font-weight: bold; }
-.mobile-show { display: none; }
 
 #kotak-error {
     display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    background: rgba(255,0,0,0.9); color: white; padding: 20px; border-radius: 10px; z-index: 999;
-}
-
-/* --- MOBILE RESPONSIVE --- */
-@media (max-width: 768px) {
-    #sidebar {
-        top: 0; left: 0; transform: none;
-        width: 100%; height: auto;
-        flex-direction: row; flex-wrap: wrap;
-        padding: 10px; border-radius: 0 0 15px 15px;
-        align-items: center; justify-content: space-between;
-    }
-    
-    .scroll-container {
-        flex-direction: row; overflow-x: auto; width: 60%;
-        padding-bottom: 5px; gap: 5px;
-    }
-    
-    .judul-ui, .pemisah-horizontal { display: none; }
-    
-    .tombol { font-size: 9px; padding: 8px; min-width: 60px; }
-    .tombol-import { width: auto; flex-grow: 0; }
-    
-    /* Move slider to bottom bar on mobile logic or keep compact */
-    #sidebar .grup-slider { display: none; /* Hide manual slider on mobile to save space, or move */ }
-
-    #panel-bawah {
-        bottom: 10px; padding: 8px 15px;
-        width: 95%; box-sizing: border-box;
-    }
-    
-    .baris { gap: 8px; }
-    .grup-slider { min-width: 50px; }
-    .label { font-size: 7px; }
-    
-    /* Shrink Preview */
-    #wadah-pratinjau {
-        top: auto; bottom: 80px; right: 10px;
-        width: 100px; height: 75px; opacity: 0.8;
-    }
-    
-    #instruksi { font-size: 10px; top: 70px; left: 10px; width: 200px; }
-    .mobile-hide { display: none; }
-    .mobile-show { display: block; }
+    background: rgba(255,0,0,0.9); color: white; padding: 20px; border-radius: 10px;
+    text-align: center; z-index: 999;
 }
