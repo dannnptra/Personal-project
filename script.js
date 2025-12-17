@@ -10,7 +10,13 @@ let audioAktif = false;
 
 // --- STATUS APLIKASI ---
 let status = {
-    gestur: 0, targetGestur: 0,
+    gestur: 0, 
+    targetGestur: 0,
+    
+    // Split gestures for combining slider + hand
+    handGestur: 0,
+    manualGestur: 0, // Nilai dari Slider
+
     rotasiX: 0, rotasiY: 0, 
     momentumY: 0, 
     posisiTanganTerakhirX: 0, 
@@ -63,7 +69,6 @@ function inisialisasi() {
     adegan.add(bolaTengah); 
     bolaTengah.visible = false; 
 
-    // NO TEXTURE LOADER HERE (Reverted)
     buatPartikel('bola'); 
     mulaiSistemInput();
     siapkanUI();
@@ -153,6 +158,8 @@ async function mulaiSistemInput() {
         }
 
         const landmark = hasil.multiHandLandmarks;
+        
+        // JIKA TANGAN HILANG, JANGAN RESET NILAI TANGAN TERAKHIR (GHOST)
         if (!landmark || landmark.length === 0) {
             document.getElementById('teks-status').innerText = "Hand Lost - State Preserved";
             return;
@@ -175,7 +182,7 @@ async function mulaiSistemInput() {
                 konteksKanvas.fillStyle = "#ff00ff";
                 konteksKanvas.font = "bold 16px Arial";
                 konteksKanvas.textAlign = "center";
-                konteksKanvas.fillText("ZOOM MODE ✨", 160, 120);
+                konteksKanvas.fillText("ZOOM MODE", 160, 120);
                 document.getElementById('teks-status').innerText = "ZOOM MODE ACTIVE";
                 return;
             }
@@ -195,7 +202,7 @@ async function mulaiSistemInput() {
                 if (jariKiri === 0) status.isLocked = true;
                 else if (jariKiri === 5) {
                     status.isLocked = false;
-                    status.targetGestur = 0;
+                    status.handGestur = 0; // Reset hand gesture
                 }
 
                 if (!status.isLocked) {
@@ -203,7 +210,9 @@ async function mulaiSistemInput() {
                     const MIN_JARAK = 0.02; const MAX_JARAK = 0.35; 
                     let rawPinch = (MAX_JARAK - jarakCubit) / (MAX_JARAK - MIN_JARAK);
                     rawPinch = Math.max(0.0, Math.min(1.0, rawPinch));
-                    status.targetGestur = Math.pow(rawPinch, 0.4);
+                    
+                    // Simpan ke handGestur, bukan langsung ke targetGestur
+                    status.handGestur = Math.pow(rawPinch, 0.4);
                 }
 
                 if (status.isLocked) {
@@ -211,8 +220,8 @@ async function mulaiSistemInput() {
                     konteksKanvas.fillText("🔒 LOCKED", 10, 30);
                 } else {
                     konteksKanvas.fillStyle = "cyan";
-                    konteksKanvas.fillText(`GATHER: ${Math.round(status.targetGestur*100)}%`, 10, 30);
-                    konteksKanvas.strokeStyle = `rgba(0, 255, 255, ${status.targetGestur})`;
+                    konteksKanvas.fillText(`GATHER: ${Math.round(status.handGestur*100)}%`, 10, 30);
+                    konteksKanvas.strokeStyle = `rgba(0, 255, 255, ${status.handGestur})`;
                     konteksKanvas.lineWidth = 4;
                     konteksKanvas.beginPath();
                     konteksKanvas.moveTo(lm[4].x*elemenKanvas.width, lm[4].y*elemenKanvas.height);
@@ -250,7 +259,6 @@ async function mulaiSistemInput() {
     }
 }
 
-// --- UTILITAS ---
 function hitungJari(lm) { 
     let jumlah=0; 
     if(lm[8].y < lm[6].y) jumlah++; 
@@ -388,7 +396,6 @@ function teksKePartikel() {
     status.bentukSaatIni='teks'; 
 };
 
-// --- BUAT PARTIKEL (SPHERE SCATTER) ---
 function buatPartikel(tipe) { 
     if(partikel){adegan.remove(partikel); geometri.dispose();} 
     geometri=new THREE.BufferGeometry(); 
@@ -397,7 +404,7 @@ function buatPartikel(tipe) {
     for(let i=0;i<KONFIGURASI.jumlah;i++){
         awal.push(0,0,0); tujuan.push(0,0,0);
         
-        // Spherical Math
+        // Spherical Math (Scatter Sphere)
         const theta = Math.random() * Math.PI * 2;
         const phi = Math.acos(2 * Math.random() - 1);
         const r = Math.pow(Math.random(), 1/3); 
@@ -436,6 +443,11 @@ function siapkanUI() {
     document.getElementById('sliderGesekan').addEventListener('input',(e)=>KONFIGURASI.gesekan=parseFloat(e.target.value)); 
     document.getElementById('sliderCahaya').addEventListener('input',(e)=>efekBloom.strength=parseFloat(e.target.value)); 
     document.getElementById('sliderZum').addEventListener('input',(e)=>status.basisZum=parseFloat(e.target.value)); 
+    
+    // --- MANUAL SLIDER LISTENER ---
+    document.getElementById('sliderGather').addEventListener('input', (e) => {
+        status.manualGestur = parseFloat(e.target.value);
+    });
 }
 
 async function aktifkanAudio() { 
@@ -477,6 +489,10 @@ function animasi() {
 
     } else { status.bass=0; status.mid=0; status.high=0; }
     
+    // --- COMBINE MANUAL SLIDER & HAND GESTURE ---
+    // Gunakan nilai terbesar antara slider dan tangan
+    status.targetGestur = Math.max(status.handGestur, status.manualGestur);
+
     status.gestur += (status.targetGestur - status.gestur) * 8.0 * dt;
     if(status.morfosis < 1.0) { 
         status.morfosis += dt * 1.5; 
