@@ -1,4 +1,4 @@
-# Particle System Pro
+# Hand gesture controlled particle
 
 A high-performance, interactive 3D particle simulation controlled by hand gestures and real-time audio. Built with Three.js and MediaPipe.
 
