@@ -10,18 +10,33 @@ let audioAktif = false;
 
 // --- STATUS APLIKASI ---
 let status = {
-    gestur: 0, targetGestur: 0,
+    gestur: 0, 
+    targetGestur: 0,
+    
+    // Split gestures for combining slider + hand
+    handGestur: 0,
+    manualGestur: 0, // Nilai dari Slider
+
     rotasiX: 0, rotasiY: 0, 
     momentumY: 0, 
     posisiTanganTerakhirX: 0, 
     targetRotasiX: 0,
     zum: 1.0, basisZum: 1.0,
-    denyut: 0,
+    isLocked: false, 
+    bass: 0, mid: 0, high: 0,
+    baseColor1: new THREE.Color('#ff8800'), 
+    targetColor1: new THREE.Color('#ff8800'),
     bentukSaatIni: 'bola',
     morfosis: 1.0
 };
 
 const jam = new THREE.Clock();
+
+const HAND_CONNECTIONS_MAP = [
+    [0,1], [1,2], [2,3], [3,4], [0,5], [5,6], [6,7], [7,8],
+    [0,9], [9,10], [10,11], [11,12], [0,13], [13,14], [14,15], [15,16],
+    [0,17], [17,18], [18,19], [19,20]
+];
 
 // --- FUNGSI UTAMA ---
 function inisialisasi() {
@@ -72,121 +87,178 @@ function tampilkanError(pesan) {
     document.getElementById('pesan-error').innerText = pesan;
 }
 
+function imporObj(input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const isiFile = e.target.result;
+        const loader = new THREE.OBJLoader();
+        try {
+            const object = loader.parse(isiFile);
+            let mesh = null;
+            object.traverse(function (child) { if (child.isMesh && !mesh) mesh = child; });
+
+            if (mesh) {
+                if (bolaTengah) bolaTengah.visible = false;
+                document.querySelectorAll('.tombol').forEach(b => b.classList.remove('aktif'));
+                const atributAwal = geometri.attributes.aPosisiAwal;
+                const atributTujuan = geometri.attributes.aPosisiTujuan;
+                atributAwal.array.set(atributTujuan.array); 
+                atributAwal.needsUpdate = true;
+                
+                mesh.geometry.center();
+                mesh.geometry.computeBoundingSphere();
+                const scaleFactor = 25.0 / mesh.geometry.boundingSphere.radius;
+                const posisiObj = mesh.geometry.attributes.position;
+                const jumlahTitikObj = posisiObj.count;
+
+                for (let i = 0; i < KONFIGURASI.jumlah; i++) {
+                    const indexAcak = Math.floor(Math.random() * jumlahTitikObj);
+                    const x = posisiObj.getX(indexAcak) * scaleFactor;
+                    const y = posisiObj.getY(indexAcak) * scaleFactor;
+                    const z = posisiObj.getZ(indexAcak) * scaleFactor;
+                    atributTujuan.setXYZ(i, x, y, z);
+                }
+                
+                atributTujuan.needsUpdate = true;
+                status.morfosis = 0.0;
+                status.bentukSaatIni = 'custom';
+                input.value = ''; 
+            } else { alert("File OBJ tidak valid."); }
+        } catch (err) { console.error(err); alert("Gagal memuat OBJ."); }
+    };
+    reader.readAsText(file);
+}
+
 // --- SISTEM DETEKSI TANGAN ---
 async function mulaiSistemInput() {
     const elemenVideo = document.getElementById('video_input');
     const elemenKanvas = document.getElementById('kanvas_output');
     const konteksKanvas = elemenKanvas.getContext('2d');
+    elemenKanvas.width = 320; elemenKanvas.height = 240;
 
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-    } catch (err) {
-        console.error("Kesalahan Kamera:", err);
-        tampilkanError("Camera Access Denied.");
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert("Browser tidak mendukung WebCam.");
         return;
     }
 
     const hands = new Hands({ locateFile: (file) => `https://unpkg.com/@mediapipe/hands/${file}` });
-    
-    hands.setOptions({ 
-        maxNumHands: 2, 
-        modelComplexity: 1, 
-        minDetectionConfidence: 0.7, 
-        minTrackingConfidence: 0.7,
-        selfieMode: true 
-    });
+    hands.setOptions({ maxNumHands: 2, modelComplexity: 1, minDetectionConfidence: 0.7, minTrackingConfidence: 0.7, selfieMode: true });
 
     hands.onResults(hasil => {
-        konteksKanvas.fillStyle = 'black'; konteksKanvas.fillRect(0,0,elemenKanvas.width, elemenKanvas.height);
+        konteksKanvas.clearRect(0, 0, elemenKanvas.width, elemenKanvas.height);
+        
+        if (hasil.multiHandLandmarks) {
+            for (const landmarks of hasil.multiHandLandmarks) {
+                drawConnectors(konteksKanvas, landmarks, HAND_CONNECTIONS, {color: '#00FFFF', lineWidth: 2});
+                drawLandmarks(konteksKanvas, landmarks, {color: '#FFFFFF', lineWidth: 1, radius: 2});
+            }
+        }
+
         const landmark = hasil.multiHandLandmarks;
+        
+        // JIKA TANGAN HILANG, JANGAN RESET NILAI TANGAN TERAKHIR (GHOST)
+        if (!landmark || landmark.length === 0) {
+            document.getElementById('teks-status').innerText = "Hand Lost - State Preserved";
+            return;
+        }
 
-        if (landmark && landmark.length > 0) {
-            for (let i = 0; i < landmark.length; i++) {
-                const lm = landmark[i];
-                const label = hasil.multiHandedness[i].label;
+        // --- ZOOM MODE CHECK ---
+        if (landmark.length === 2) {
+            const jariTangan1 = hitungJari(landmark[0]);
+            const jariTangan2 = hitungJari(landmark[1]);
+            
+            if (jariTangan1 === 5 && jariTangan2 === 5) {
+                const wrist1 = landmark[0][0];
+                const wrist2 = landmark[1][0];
+                const dist = Math.hypot(wrist1.x - wrist2.x, wrist1.y - wrist2.y);
                 
-                drawConnectors(konteksKanvas, lm, HAND_CONNECTIONS, {color: '#00FFFF', lineWidth: 2});
-                drawLandmarks(konteksKanvas, lm, {color: '#FFFFFF', lineWidth: 1, radius: 2});
+                let targetZoom = (dist - 0.2) * 6.0;
+                targetZoom = Math.max(0.5, Math.min(4.0, targetZoom));
+                status.basisZum += (targetZoom - status.basisZum) * 0.1;
                 
-                konteksKanvas.fillStyle = "white"; konteksKanvas.font = "16px Arial";
-                let labelTeks = label === "Left" ? "LEFT" : "RIGHT";
-                konteksKanvas.fillText(labelTeks, lm[0].x * elemenKanvas.width, lm[0].y * elemenKanvas.height);
+                konteksKanvas.fillStyle = "#ff00ff";
+                konteksKanvas.font = "bold 16px Arial";
+                konteksKanvas.textAlign = "center";
+                konteksKanvas.fillText("ZOOM MODE", 160, 120);
+                document.getElementById('teks-status').innerText = "ZOOM MODE ACTIVE";
+                return;
+            }
+        }
 
-                // --- TANGAN KIRI (Bentuk) ---
-                if(label === 'Left') {
-                    const jumlahJari = hitungJari(lm);
-                    konteksKanvas.fillStyle = "#ff00ff"; konteksKanvas.font = "bold 24px Arial";
-                    konteksKanvas.fillText(jumlahJari, lm[0].x * elemenKanvas.width + 20, lm[0].y * elemenKanvas.height);
-                    
-                    if(jumlahJari === 1) aturBentuk('bola');
-                    if(jumlahJari === 2) aturBentuk('hati');
-                    if(jumlahJari === 3) aturBentuk('galaksi');
-                    if(jumlahJari === 4) aturBentuk('lubanghitam');
-                    if(jumlahJari === 5) aturBentuk('nebula');
+        document.getElementById('teks-status').innerText = "System Active";
+        konteksKanvas.textAlign = "left";
+
+        for (let i = 0; i < landmark.length; i++) {
+            const lm = landmark[i];
+            const label = hasil.multiHandedness[i].label;
+            
+            // --- LEFT: PINCH & LOCK ---
+            if(label === 'Left') {
+                const jariKiri = hitungJari(lm);
+
+                if (jariKiri === 0) status.isLocked = true;
+                else if (jariKiri === 5) {
+                    status.isLocked = false;
+                    status.handGestur = 0; // Reset hand gesture
                 }
 
-                // --- TANGAN KANAN (Kontrol Utama) ---
-                if(label === 'Right') {
-                        const pusat = lm[9]; 
-                        const jariKanan = hitungJari(lm);
-                        const jarakCubit = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-                        
-                        // Hitung posisi X untuk rotasi (dibalik karena mirror)
-                        const posisiXSaatIni = (pusat.x - 0.5) * -20.0;
-                        
-                        // === MODE 1: PINCH (2 Jari atau Kurang) ===
-                        // Fokus: Gather & Scatter
-                        if (jariKanan >= 1 && jariKanan <= 3) { // Toleransi 1-3 jari untuk pinch
-                            const BATAS_PINCH = 0.05;
-                            
-                            if (jarakCubit < BATAS_PINCH) {
-                                status.targetGestur = 1; // GATHER (Kumpul)
-                            } else {
-                                status.targetGestur = 0; // SCATTER (Sebar)
-                            }
+                if (!status.isLocked) {
+                    const jarakCubit = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+                    const MIN_JARAK = 0.02; const MAX_JARAK = 0.35; 
+                    let rawPinch = (MAX_JARAK - jarakCubit) / (MAX_JARAK - MIN_JARAK);
+                    rawPinch = Math.max(0.0, Math.min(1.0, rawPinch));
+                    
+                    // Simpan ke handGestur, bukan langsung ke targetGestur
+                    status.handGestur = Math.pow(rawPinch, 0.4);
+                }
 
-                            // Visual Text
-                            konteksKanvas.fillStyle = "cyan";
-                            konteksKanvas.fillText("PINCH MODE", lm[0].x * elemenKanvas.width, lm[0].y * elemenKanvas.height + 25);
-                        }
-
-                        // === MODE 2: ROTASI (5 Jari atau Kepal/0 Jari) ===
-                        // Fokus: Rotate & Tilt
-                        else if (jariKanan >= 4 || jariKanan === 0) {
-                            
-                            // Hitung Delta X (Kecepatan Gerak Tangan)
-                            const deltaX = posisiXSaatIni - status.posisiTanganTerakhirX;
-                            
-                            // Terapkan Rotasi (Spin)
-                            status.momentumY += deltaX * 0.05; 
-                            
-                            // Terapkan Kemiringan (Tilt)
-                            status.targetRotasiX = (pusat.y - 0.5) * 4.0; 
-
-                            // Visual Text
-                            konteksKanvas.fillStyle = "yellow";
-                            konteksKanvas.fillText("ROTATE MODE", lm[0].x * elemenKanvas.width, lm[0].y * elemenKanvas.height + 25);
-                        }
-
-                        // Update posisi terakhir setiap frame agar transisi mulus
-                        status.posisiTanganTerakhirX = posisiXSaatIni;
+                if (status.isLocked) {
+                    konteksKanvas.fillStyle = "#ff0055";
+                    konteksKanvas.fillText("🔒 LOCKED", 10, 30);
+                } else {
+                    konteksKanvas.fillStyle = "cyan";
+                    konteksKanvas.fillText(`GATHER: ${Math.round(status.handGestur*100)}%`, 10, 30);
+                    konteksKanvas.strokeStyle = `rgba(0, 255, 255, ${status.handGestur})`;
+                    konteksKanvas.lineWidth = 4;
+                    konteksKanvas.beginPath();
+                    konteksKanvas.moveTo(lm[4].x*elemenKanvas.width, lm[4].y*elemenKanvas.height);
+                    konteksKanvas.lineTo(lm[8].x*elemenKanvas.width, lm[8].y*elemenKanvas.height);
+                    konteksKanvas.stroke();
                 }
             }
-            document.getElementById('teks-status').innerText = "Hands Detected - System Active";
-        } else {
-            document.getElementById('teks-status').innerText = "Camera Active - Waiting for Hands...";
+
+            // --- RIGHT: ROTATE ---
+            if(label === 'Right') {
+                const pusat = lm[9];
+                const posisiXSaatIni = (pusat.x - 0.5) * -20.0;
+                const deltaX = posisiXSaatIni - status.posisiTanganTerakhirX;
+                status.momentumY += deltaX * 0.05; 
+                status.targetRotasiX = (pusat.y - 0.5) * 4.0;
+                status.posisiTanganTerakhirX = posisiXSaatIni;
+                
+                konteksKanvas.fillStyle = "yellow";
+                konteksKanvas.fillText("ROTATE", 10, 230);
+            }
         }
     });
 
-    const kameraMP = new Camera(elemenVideo, { onFrame: async () => { await hands.send({image: elemenVideo}); }, width: 320, height: 240 });
-    kameraMP.start().then(() => {
-        document.getElementById('teks-status').innerText = "Camera Started";
-    }).catch(err => {
-        tampilkanError("Mediapipe Camera Error: " + err);
-    });
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        elemenVideo.srcObject = stream;
+        elemenVideo.onloadedmetadata = () => { elemenVideo.play(); loopDeteksi(); };
+    } catch (err) {
+        tampilkanError("Cam Error: " + err);
+    }
+
+    async function loopDeteksi() {
+        if (elemenVideo.readyState >= 2) await hands.send({image: elemenVideo});
+        requestAnimationFrame(loopDeteksi);
+    }
 }
 
-// --- UTILITAS & LOGIKA PARTIKEL ---
 function hitungJari(lm) { 
     let jumlah=0; 
     if(lm[8].y < lm[6].y) jumlah++; 
@@ -214,7 +286,6 @@ function acakGaussian() { let u=0,v=0; while(u===0)u=Math.random(); while(v===0)
 function aturBentuk(tipe) {
     if(status.bentukSaatIni === tipe) return; 
     status.bentukSaatIni = tipe;
-    
     document.querySelectorAll('.tombol').forEach(b => b.classList.remove('aktif'));
     const btn = document.getElementById('tombol-'+tipe); if(btn) btn.classList.add('aktif');
     
@@ -283,6 +354,8 @@ function buatTitik(tipe) {
 }
 
 function aturWarna(c1Hex, c2Hex) { 
+    status.baseColor1.set(c1Hex);
+    status.targetColor1.set(c1Hex);
     document.getElementById('warna1').value = c1Hex; 
     document.getElementById('warna2').value = c2Hex; 
     if(material) {
@@ -291,7 +364,6 @@ function aturWarna(c1Hex, c2Hex) {
     }
 }
 
-// Fungsi Text-to-Particle
 function teksKePartikel() { 
     if(bolaTengah) bolaTengah.visible = false; 
     const atributAwal=geometri.attributes.aPosisiAwal; 
@@ -328,9 +400,20 @@ function buatPartikel(tipe) {
     if(partikel){adegan.remove(partikel); geometri.dispose();} 
     geometri=new THREE.BufferGeometry(); 
     const pos=[],rnd=[],awal=[],tujuan=[]; 
+    
     for(let i=0;i<KONFIGURASI.jumlah;i++){
         awal.push(0,0,0); tujuan.push(0,0,0);
-        rnd.push((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2);
+        
+        // Spherical Math (Scatter Sphere)
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = Math.pow(Math.random(), 1/3); 
+        
+        const x = r * Math.sin(phi) * Math.cos(theta);
+        const y = r * Math.sin(phi) * Math.sin(theta);
+        const z = r * Math.cos(phi);
+        
+        rnd.push(x, y, z);
         pos.push(0,0,0);
     } 
     geometri.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); 
@@ -342,7 +425,9 @@ function buatPartikel(tipe) {
         vertexShader:document.getElementById('vertexShader').textContent,
         fragmentShader:document.getElementById('fragmentShader').textContent,
         uniforms:{
-            uWaktu:{value:0}, uGestur:{value:0}, uDenyut:{value:0}, uMorfosis:{value:1.0},
+            uWaktu:{value:0}, uGestur:{value:0}, 
+            uBass:{value:0}, uMid:{value:0}, uHigh:{value:0},
+            uMorfosis:{value:1.0},
             uWarna1:{value:new THREE.Color('#ff8800')}, uWarna2:{value:new THREE.Color('#000000')}, uUkuran:{value:2.0}
         },
         transparent:true, depthWrite:false, blending:THREE.AdditiveBlending
@@ -353,11 +438,16 @@ function buatPartikel(tipe) {
 }
 
 function siapkanUI() { 
-    document.getElementById('warna1').addEventListener('input',(e)=>material.uniforms.uWarna1.value.set(e.target.value)); 
+    document.getElementById('warna1').addEventListener('input',(e)=>aturWarna(e.target.value, material.uniforms.uWarna2.value.getHexString())); 
     document.getElementById('warna2').addEventListener('input',(e)=>material.uniforms.uWarna2.value.set(e.target.value)); 
     document.getElementById('sliderGesekan').addEventListener('input',(e)=>KONFIGURASI.gesekan=parseFloat(e.target.value)); 
     document.getElementById('sliderCahaya').addEventListener('input',(e)=>efekBloom.strength=parseFloat(e.target.value)); 
     document.getElementById('sliderZum').addEventListener('input',(e)=>status.basisZum=parseFloat(e.target.value)); 
+    
+    // --- MANUAL SLIDER LISTENER ---
+    document.getElementById('sliderGather').addEventListener('input', (e) => {
+        status.manualGestur = parseFloat(e.target.value);
+    });
 }
 
 async function aktifkanAudio() { 
@@ -367,7 +457,7 @@ async function aktifkanAudio() {
             konteksAudio=new(window.AudioContext||window.webkitAudioContext)();
             const source=konteksAudio.createMediaStreamSource(stream);
             penganalisa=konteksAudio.createAnalyser();
-            penganalisa.fftSize=256;
+            penganalisa.fftSize=512;
             source.connect(penganalisa);
             dataArrayAudio=new Uint8Array(penganalisa.frequencyBinCount);
             audioAktif=true;
@@ -383,35 +473,43 @@ function animasi() {
     requestAnimationFrame(animasi);
     const dt = jam.getDelta();
     
-    // Audio
     if(audioAktif && penganalisa) { 
         penganalisa.getByteFrequencyData(dataArrayAudio); 
-        let total=0; for(let i=0; i<30; i++) total+=dataArrayAudio[i]; 
-        status.denyut = total/30/255; 
-    } else { status.denyut=0; }
+        let bass=0, mid=0, high=0;
+        for(let i=0; i<10; i++) bass += dataArrayAudio[i];
+        for(let i=10; i<100; i++) mid += dataArrayAudio[i];
+        for(let i=100; i<256; i++) high += dataArrayAudio[i];
+        status.bass = (bass/10)/255;
+        status.mid = (mid/90)/255;
+        status.high = (high/156)/255;
+
+        // Beat Detection Flash
+        if (status.bass > 0.8) material.uniforms.uWarna1.value.lerp(new THREE.Color(1, 1, 1), 0.3);
+        else material.uniforms.uWarna1.value.lerp(status.baseColor1, 0.1);
+
+    } else { status.bass=0; status.mid=0; status.high=0; }
     
-    // Gestur Cubit/Buka
+    // --- COMBINE MANUAL SLIDER & HAND GESTURE ---
+    // Gunakan nilai terbesar antara slider dan tangan
+    status.targetGestur = Math.max(status.handGestur, status.manualGestur);
+
     status.gestur += (status.targetGestur - status.gestur) * 8.0 * dt;
-    
-    // Animasi Morfosis
     if(status.morfosis < 1.0) { 
         status.morfosis += dt * 1.5; 
         if(status.morfosis > 1.0) status.morfosis = 1.0; 
     }
     
-    // Fisika Rotasi
     status.rotasiY += status.momentumY; 
     status.momentumY *= KONFIGURASI.gesekan; 
     status.rotasiX += (status.targetRotasiX - status.rotasiX) * 0.1;
-    
-    // Zum Manual
     status.zum += ( status.basisZum - status.zum ) * 5.0 * dt;
 
-    // Update Shader
     if(material) { 
         material.uniforms.uWaktu.value += dt; 
         material.uniforms.uGestur.value = status.gestur; 
-        material.uniforms.uDenyut.value = status.denyut; 
+        material.uniforms.uBass.value = status.bass;
+        material.uniforms.uMid.value = status.mid;
+        material.uniforms.uHigh.value = status.high;
         material.uniforms.uMorfosis.value = status.morfosis; 
     }
     if(partikel) { 

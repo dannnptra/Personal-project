@@ -3,11 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistem Partikel Interaktif</title>
+    <title>Particle System Pro: Manual Control</title>
     
     <link rel="stylesheet" href="style.css">
 
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+
     <script src="https://unpkg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
@@ -25,43 +27,68 @@
     <div id="kotak-error">
         <h3>CAMERA ERROR</h3>
         <p id="pesan-error">Checking camera...</p>
-        <p style="font-size: 12px; margin-top: 10px;">Solution: Use VS Code "Live Server" or upload to CodePen/GitHub.</p>
     </div>
 
     <div id="instruksi">
-        <div><span class="sorot">RIGHT HAND (Master):</span></div>
-        <div>2 FINGERS (Pinch) = <b>GATHER / SCATTER</b></div>
-        <div>5 FINGERS / FIST = <b>SPIN & TILT</b></div>
-        <br>
-        <div><span class="sorot">LEFT HAND (Shapes):</span></div>
-        <div>1 Finger = Sphere | 2 Fingers = Heart</div>
-        <div>3 Fingers = Galaxy | 4 Fingers = Black Hole</div>
-        <div>5 Fingers = Nebula</div>
-        <div id="teks-status" style="color:#aaa; font-size:11px; margin-top:5px;">Waiting for hands...</div>
+        <div><span class="sorot">BOTH HANDS (10 Fingers):</span> ZOOM MODE</div>
+        <div><span class="sorot">LEFT HAND:</span> Pinch (Gather) | Fist (Lock)</div>
+        <div><span class="sorot">RIGHT HAND:</span> Move/Tilt (Rotate)</div>
+        <div id="teks-status" style="color:#aaa; font-size:11px; margin-top:5px;">Initializing...</div>
     </div>
+
     <div id="wadah-pratinjau"><canvas id="kanvas_output"></canvas></div>
     <video id="video_input" playsinline></video>
 
-    <div id="panel-ui">
-        <div class="baris">
-            <button class="tombol aktif" id="tombol-bola" onclick="aturBentuk('bola')">Sphere</button>
-            <button class="tombol" id="tombol-hati" onclick="aturBentuk('hati')">Heart</button>
-            <button class="tombol" id="tombol-galaksi" onclick="aturBentuk('galaksi')">Galaxy</button>
-            <button class="tombol" id="tombol-lubanghitam" onclick="aturBentuk('lubanghitam')">Black Hole</button>
-            <button class="tombol" id="tombol-nebula" onclick="aturBentuk('nebula')">Nebula</button>
+    <input type="file" id="inputObj" accept=".obj" style="display: none;" onchange="imporObj(this)">
+
+    <div id="sidebar">
+        <div class="judul-ui">PRESETS</div>
+        <button class="tombol aktif" id="tombol-bola" onclick="aturBentuk('bola')">Sphere</button>
+        <button class="tombol" id="tombol-hati" onclick="aturBentuk('hati')">Heart</button>
+        <button class="tombol" id="tombol-galaksi" onclick="aturBentuk('galaksi')">Galaxy</button>
+        <button class="tombol" id="tombol-lubanghitam" onclick="aturBentuk('lubanghitam')">Black Hole</button>
+        <button class="tombol" id="tombol-nebula" onclick="aturBentuk('nebula')">Nebula</button>
+        
+        <div class="pemisah-horizontal"></div>
+        
+        <div class="grup-slider" style="width: 100%; align-items: flex-start; margin-bottom: 5px;">
+            <span class="label" style="color: cyan;">0% For Hand Gesture</span>
+            <span class="label" style="color: cyan;">MANUAL GATHER</span>
+            <input type="range" id="sliderGather" min="0" max="1" step="0.01" value="0" style="width: 100%;">
         </div>
-        <div class="baris">
-            <input type="text" id="inputTeks" placeholder="NAME">
-            <button class="tombol" onclick="teksKePartikel()" style="flex-grow:0;">TEXT</button>
+
+        <div class="pemisah-horizontal"></div>
+        
+        <div class="judul-ui" style="color:#ffff00">CUSTOM</div>
+        <button class="tombol tombol-import" onclick="document.getElementById('inputObj').click()">IMPORT OBJ</button>
+        
+        <div class="input-group">
+            <input type="text" id="inputTeks" placeholder="HALO">
+            <button class="tombol" onclick="teksKePartikel()">GENERATE TEXT</button>
         </div>
+    </div>
+
+    <div id="panel-bawah">
         <div class="baris">
-            <button class="tombol" id="tombolMic" onclick="aktifkanAudio()" style="flex-grow:0;">AUDIO</button>
-            <div style="width:1px; height:20px; background:#333; margin:0 5px;"></div>
-            <div class="grup-slider"><span class="label">FRICTION</span><input type="range" id="sliderGesekan" min="0.90" max="0.99" step="0.001" value="0.98"></div>
-            <div class="grup-slider"><span class="label">GLOW</span><input type="range" id="sliderCahaya" min="0" max="3" step="0.1" value="1.5"></div>
-            <div class="grup-slider"><span class="label">ZOOM</span><input type="range" id="sliderZum" min="0.5" max="3.0" step="0.1" value="1.0"></div>
-            <div style="width:1px; height:20px; background:#333; margin:0 5px;"></div>
-            <input type="color" id="warna1" value="#ff8800"><input type="color" id="warna2" value="#000000">
+            <button class="tombol" id="tombolMic" onclick="aktifkanAudio()" style="flex-grow:0; width: 80px;">AUDIO</button>
+            <div class="pemisah-vertikal"></div>
+            
+            <div class="grup-slider">
+                <span class="label">FRICTION</span>
+                <input type="range" id="sliderGesekan" min="0.90" max="0.99" step="0.001" value="0.98">
+            </div>
+            <div class="grup-slider">
+                <span class="label">GLOW</span>
+                <input type="range" id="sliderCahaya" min="0" max="3" step="0.1" value="1.5">
+            </div>
+            <div class="grup-slider">
+                <span class="label">ZOOM</span>
+                <input type="range" id="sliderZum" min="0.5" max="3.0" step="0.1" value="1.0">
+            </div>
+            
+            <div class="pemisah-vertikal"></div>
+            <input type="color" id="warna1" value="#ff8800" title="Core Color">
+            <input type="color" id="warna2" value="#000000" title="Outer Color">
         </div>
     </div>
 
@@ -69,28 +96,46 @@
         uniform float uWaktu; 
         uniform float uGestur; 
         uniform float uUkuran;
-        uniform float uDenyut; 
+        uniform float uBass;
+        uniform float uMid;
+        uniform float uHigh;
         uniform float uMorfosis; 
+        
         attribute vec3 aPosisiAwal; 
         attribute vec3 aPosisiTujuan; 
         attribute vec3 aAcak; 
         varying float vAlpha; 
         varying vec3 vPos;
+        
         void main() {
             float t = uGestur; 
-            vec3 tersebar = aAcak * 70.0;
-            tersebar.x += sin(uWaktu * 0.5 + aAcak.y) * 4.0;
-            tersebar.y += cos(uWaktu * 0.3 + aAcak.x) * 4.0;
+            
+            // Spherical Scatter
+            vec3 tersebar = aAcak * 100.0;
+            
+            float jitter = uHigh * 3.0;
+            tersebar.x += sin(uWaktu * 0.5 + aAcak.y) * (2.0 + jitter);
+            tersebar.y += cos(uWaktu * 0.3 + aAcak.x) * (2.0 + jitter);
+            
             vec3 terbentuk = mix(aPosisiAwal, aPosisiTujuan, uMorfosis);
-            float efekDenyut = 1.0 + (uDenyut * 0.2); 
-            terbentuk *= efekDenyut;
+            
+            float bassScale = 1.0 + (uBass * 0.6);
+            float midWave = sin(terbentuk.y * 0.2 + uWaktu * 3.0) * uMid * 3.0;
+            
+            terbentuk *= bassScale;
+            terbentuk.x += midWave;
+            terbentuk.z += midWave * 0.5;
+
             vec3 posisiAkhir = mix(tersebar, terbentuk, t);
             vPos = posisiAkhir; 
+            
             vec4 posisiMV = modelViewMatrix * vec4(posisiAkhir, 1.0);
-            float ukuranDenyut = uUkuran * (1.0 + uDenyut * 2.0);
-            gl_PointSize = (ukuranDenyut * 150.0) / -posisiMV.z;
+            
+            float pulse = 1.0 + uBass * 1.5;
+            gl_PointSize = (uUkuran * pulse * 150.0) / -posisiMV.z;
             gl_Position = projectionMatrix * posisiMV;
-            vAlpha = 0.3 + (0.7 * t);
+            
+            vAlpha = 0.3 + (0.7 * t) + (uHigh * 0.8);
         }
     </script>
 
@@ -99,15 +144,19 @@
         uniform vec3 uWarna2;
         varying float vAlpha; 
         varying vec3 vPos;
+        
         void main() {
             float d = distance(gl_PointCoord, vec2(0.5));
             if (d > 0.5) discard;
+            
             float panjang = length(vPos);
-            float nilaiCampur = smoothstep(0.0, 25.0, panjang);
-            if(abs(vPos.y) < 2.0 && panjang < 20.0) nilaiCampur *= 0.5; 
+            float nilaiCampur = smoothstep(0.0, 30.0, panjang);
+            
             vec3 warnaAkhir = mix(uWarna1, uWarna2, nilaiCampur);
+            
             float inti = 1.0 - (d * 2.0);
             inti = pow(inti, 2.0); 
+            
             gl_FragColor = vec4(warnaAkhir, vAlpha * inti);
         }
     </script>
