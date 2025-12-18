@@ -9,8 +9,7 @@ Ainteractive 3D particle simulation controlled by hand gestures and real-time au
 * **High-Performance Particles:** Renders 30,000 to 80,000 particles with glow effects.
 * **Hand Tracking Control:** Touchless interface using computer vision.
 * **Audio Visualization:** Particles react physically to Bass, Mid, and High frequencies.
-* **Custom Shapes:** Import any .obj model to reshape the galaxy.
-* **Mobile Optimized:** Automatically adjusts performance settings for mobile devices.
+* **Custom Shapes:** Import any .obj model to reshape the galaxy. _may not be working properly_
 
 ## Gesture Controls
 
